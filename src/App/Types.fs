@@ -1,5 +1,7 @@
 ﻿namespace App
 
+open System
+
 module Types =
     open System.Net.Http
     open System
@@ -9,7 +11,8 @@ module Types =
         | Folder of Folder
 
     and Request =
-        { name : string
+        { id: string
+          name : string
           method : HttpMethod
           url : string
           requestParameters : string
@@ -17,13 +20,20 @@ module Types =
           updatedAt: DateTime }
 
     and Folder =
-        { name : string
+        { id: string
+          name : string
           mutable items : Item array
           isExpanded : bool
           createdAt : DateTime
           updatedAt: DateTime }
         
     type RequestUpdate = { oldRequest : Request; newRequest : Request }
+    
+    let itemsAreEqual a b =
+        match a, b with
+        | Request a, Request b -> a.id = b.id
+        | Folder a, Folder b -> a.id = b.id
+        | _ -> false
     
     type ItemManagerEvent =
     | ItemsChanged of Item

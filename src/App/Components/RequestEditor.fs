@@ -1,70 +1,55 @@
 ﻿namespace App.Components
 
-open App
-
-
 module RequestEditor =
+    open App
     open App.Types
-    open Elmish
     open Avalonia.Controls
+    open Avalonia.FuncUI
     open Avalonia.FuncUI.DSL
     open Avalonia.Layout
 
-    type State = { selectedRequest : Request option }
-    
-
-    type Msg =
-        | SetSelectedRequest of Request
-        | SendRequest of Request
-        | UpdateRequest of RequestUpdate
-        
-    type ExternalMsg =
-        | PersistRequestUpdate of RequestUpdate
-
-    let update msg state (itemStore : ItemStore.Observer) =
-        match msg with
-        | SendRequest request -> state, Cmd.none, None
-        | SetSelectedRequest request ->
-            itemStore.UpdateSelected (Some request)
-            state, Cmd.none, None
-        | UpdateRequest update ->
-            itemStore.UpdateItem update
-            state, Cmd.none, None
-
-    let init () = { selectedRequest = None }
-
-    let emptyDisplay (state : State) (dispatcher : Msg -> unit) =
+    let emptyDisplay =
         DockPanel.create [ DockPanel.children [ TextBlock.create [ TextBlock.text "select a request fam" ] ] ]
 
-    let addressBar (state : State) (dispatcher : Msg -> unit) (request : Request) =
-        DockPanel.create [
-            DockPanel.dock Dock.Top
-            DockPanel.children [
-                TextBox.create [
-                    TextBox.text (string request.url)
-                    TextBox.onTextChanged (fun text ->
-                        match text with
-                        | newUrl when newUrl <> request.url ->
-                            dispatcher (UpdateRequest { oldRequest = request; newRequest = { request with url = text } })
-                        | _ -> () )
-                    TextBox.horizontalAlignment HorizontalAlignment.Stretch
+    let addressBar (request : IWritable<Request>) =
+        Component.create ("address-bar", fun ctx ->
+            DockPanel.create [
+                DockPanel.dock Dock.Top
+                DockPanel.children [
+                    TextBox.create [
+                        TextBox.text request.Current.url
+                        TextBox.onTextChanged (fun text ->
+                            match text with
+                            | text when text <> request.Current.url -> ItemStore.updateRequest { request.Current with url = text }
+                            | _ -> ()
+                        )
+                        TextBox.horizontalAlignment HorizontalAlignment.Stretch
+                    ]
                 ]
             ]
-        ]
-    let requestEditor (state : State) (dispatcher : Msg -> unit) (request : Request) =
-        DockPanel.create [
-            DockPanel.children [
-                TextBlock.create [
-                    TextBlock.text request.name
+        )
+    let requestEditor (request : IWritable<Request>) =
+        Component.create ("editorWrapper", fun ctx ->
+            DockPanel.create [
+                DockPanel.children [
+                    TextBlock.create [
+                        TextBlock.text request.Current.name
+                    ]
+                    addressBar request
                 ]
-                addressBar state dispatcher request
             ]
-        ]
+        )
 
-    let view (state : State) (dispatcher : Msg -> unit) =
-        DockPanel.create
-            [ Grid.column 2
-              DockPanel.children
-                  [ match state.selectedRequest with
-                    | Some request -> requestEditor state dispatcher request
-                    | None -> emptyDisplay state dispatcher ] ]
+    let view () =
+        Component.create ("editorMain", fun ctx ->
+            let state = ctx.usePassed ItemStore.state
+            DockPanel.create
+                [ Grid.column 2
+                  DockPanel.children
+                      [ match state.Current.selected with
+                        | Some request ->
+                            let request = ctx.useState request
+                            requestEditor request
+                        | None -> emptyDisplay ] ]
+
+        )

@@ -12,7 +12,6 @@
         <Compile Include="Components\Sidebar.fs"/>
         <Compile Include="Components\RequestEditor.fs"/>
         <Compile Include="Main.fs"/>
-        <Compile Include="Subscriptions.fs" />
         <Compile Include="Program.fs"/>
     </ItemGroup>
 
