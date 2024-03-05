@@ -1,9 +1,12 @@
-﻿module App.Requests
+﻿namespace App
 
-open FSharp.Data
-
-let get (url : string) =
-    async {
-        let! resp = Http.AsyncRequest (url, headers = [ "Accept", "application/json" ], httpMethod = "GET")
-        return resp
-    }
+module Requests =
+    open FSharp.Data
+    open System
+    open Types
+    
+    let makeRequest (req : Request) =
+        async {
+            let! resp = Http.AsyncRequest (req.url, headers = [ "Accept", "application/json" ], httpMethod = req.method.ToString (), silentHttpErrors = true)
+            return resp
+        }

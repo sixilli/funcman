@@ -1,79 +1,113 @@
 ﻿namespace App.Components
 
+
 module Sidebar =
-    open App
+    open System
     open App.Types
+    open Avalonia.Media
+    open App
     open Avalonia.FuncUI
     open Avalonia.FuncUI.Types
     open Avalonia.Layout
     open Avalonia.Controls
     open Avalonia.FuncUI.DSL
-    type State =
-        { selectedItem : Request option
-          sidebarItems : Item array }
-    let createFolderItem folder =
-        Component.create ($"folder-{folder.id}", fun ctx ->
-            DockPanel.create
-                [ DockPanel.background "blue"
-                  DockPanel.height 50
-                  DockPanel.onPointerReleased (fun _ -> ItemStore.expandFolder folder)
-                  DockPanel.children
-                      [ TextBlock.create
-                            [ TextBlock.text (string folder.isExpanded)
-                              TextBlock.dock Dock.Left
-                              TextBlock.verticalAlignment VerticalAlignment.Center ]
-                        TextBlock.create
-                            [ TextBlock.text folder.name
-                              TextBlock.dock Dock.Right
-                              TextBlock.verticalAlignment VerticalAlignment.Center ]
-                        TextBlock.create [ TextBlock.text "" ] ] ]
+
+    let createRequestItem (request : IReadable<Request>) (now : IReadable<DateTime>) =
+        Component.create (
+            $"request-{request.Current.id}-{request.Current.updatedAt}-{now.Current.Millisecond}",
+            fun ctx ->
+                let now = ctx.usePassedRead now
+                DockPanel.create
+                    [ DockPanel.onPointerPressed ((fun _ -> StateStore.itemStore.setSelected request.Current), SubPatchOptions.Always)
+                      DockPanel.background "Transparent"
+                      DockPanel.height 50
+                      DockPanel.margin 5
+                      DockPanel.children
+                          [ TextBlock.create
+                                [ TextBlock.text <| request.Current.method.ToString ()
+                                  TextBlock.dock Dock.Left
+                                  TextBlock.verticalAlignment VerticalAlignment.Center ]
+                            TextBlock.create
+                                [ TextBlock.verticalAlignment VerticalAlignment.Center
+                                  TextBlock.text request.Current.name ] ] ]
         )
 
-    let createRequestItem (request : Request) =
-        Component.create ($"request-{request.id}", fun ctx ->
-            DockPanel.create
-                [ DockPanel.background "green"
-                  DockPanel.onPointerPressed (fun _ -> ItemStore.setSelected request)
-                  DockPanel.height 50
-                  DockPanel.children
-                      [ TextBlock.create
-                            [ TextBlock.text <| request.method.ToString ()
-                              TextBlock.dock Dock.Left
-                              TextBlock.verticalAlignment VerticalAlignment.Center ]
-                        TextBlock.create
-                            [ TextBlock.verticalAlignment VerticalAlignment.Center
-                              TextBlock.text request.name ] ] ]
+    let rec createFolderItem (folder : IReadable<Folder>) (now : IReadable<DateTime>) =
+        Component.create (
+            $"folder-{folder.Current.id}-{folder.Current.updatedAt}-{now.Current.Millisecond}",
+            fun ctx ->
+                let now = ctx.usePassedRead now
+                StackPanel.create
+                    [ StackPanel.children
+                          [ DockPanel.create
+                                [ DockPanel.height 50
+                                  DockPanel.margin 5
+                                  DockPanel.background "Transparent"
+                                  DockPanel.onPointerPressed (fun _ -> StateStore.itemStore.expandFolder folder)
+                                  DockPanel.children
+                                      [ TextBlock.create
+                                            [ TextBlock.text folder.Current.name
+                                              TextBlock.dock Dock.Right
+                                              TextBlock.verticalAlignment VerticalAlignment.Center ]
+                                        TextBlock.create
+                                            [ TextBlock.text (string folder.Current.isExpanded)
+                                              TextBlock.dock Dock.Left
+                                              TextBlock.verticalAlignment VerticalAlignment.Center ]
+                                        TextBlock.create [ TextBlock.text "" ]
+                                        ] ]
+                            if folder.Current.isExpanded then
+                                folder.Current.items
+                                |> Array.toList
+                                |> ctx.useState
+                                |> State.sequenceBy (function Folder f -> f.id | Request r -> r.id)
+                                |> List.map (fun item ->
+                                    match item with
+                                    | Folder folder -> createFolderItem folder :> IView
+                                    | Request request -> createRequestItem request :> IView )] ] 
+        )
+        
+
+    let createSidebarItems (items : IReadable<Item array>) =
+        Component.create (
+            "sidebar-builder",
+            fun ctx ->
+                let items = ctx.usePassedRead (items, renderOnChange = true)
+                
+
+                ScrollViewer.create
+                    [ ScrollViewer.content (
+                          StackPanel.create [
+                              StackPanel.background "Gray"
+                              StackPanel.children (
+                                  items.Current
+                                  |> Array.toList
+                                  |> ctx.useState
+                                  |> State.sequenceBy (function Folder f -> f.id | Request r -> r.id)
+                                  |> List.map (fun item ->
+                                      match item.Current with
+                                      | Folder f -> createFolderItem f :> IView
+                                      | Request r -> createRequestItem r :> IView)
+                              )
+                          ]
+                    )]
         )
 
-    let createSidebarItems (items : IWritable<ItemStore.T>) =
-        Component.create ("create-sidebar-items", fun ctx ->
-            let state = ctx.usePassed items
-            let children =
-                (Array.map
-                    (fun item ->
-                        match item with
-                        | Folder folder -> createFolderItem folder :> IView
-                        | Request request -> createRequestItem request :> IView
-                    ) state.Current.items
-                ) |> Array.toList
 
-            ScrollViewer.create
-                [ ScrollViewer.content (StackPanel.create [ StackPanel.background "Gray"; StackPanel.children children ]) ]
-        )
+    let view (items : IReadable<Item array>) =
+        Component.create (
+            "sidebar",
+            fun ctx ->
+                let items = ctx.usePassedRead items
 
-
-    let view (items : IWritable<ItemStore.T>) =
-        Component.create ("sidebar", fun ctx ->
-            let state = ctx.usePassed items
-            DockPanel.create
-                [ Grid.column 0
-                  DockPanel.verticalAlignment VerticalAlignment.Stretch
-                  DockPanel.horizontalAlignment HorizontalAlignment.Stretch
-                  DockPanel.background "Red"
-                  DockPanel.children
-                      [ Button.create
-                            [ Button.dock Dock.Top
-                              Button.onClick (fun _ -> ItemStore.addItem () ) ]
-                        createSidebarItems state
-                      ]]
+                DockPanel.create
+                    [ DockPanel.verticalAlignment VerticalAlignment.Stretch
+                      DockPanel.horizontalAlignment HorizontalAlignment.Stretch
+                      DockPanel.background "Red"
+                      DockPanel.children
+                          [ Button.create
+                                [ Button.dock Dock.Top
+                                  Button.content "new request"
+                                  Button.background (Colors.Brown.ToString ())
+                                  Button.onClick (fun _ -> StateStore.itemStore.addItem ()) ]
+                            createSidebarItems items ] ]
         )

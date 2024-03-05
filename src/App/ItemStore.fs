@@ -1,131 +1,146 @@
 ﻿namespace App
 
-module ItemStore =
-    open System
-    open System.Net.Http
-    open Types
-    open Avalonia.FuncUI
+open System
+open System.Net.Http
+open Types
+open Avalonia.FuncUI
 
-    type T = {
-        items: Item array
-        selected: Request option
-    }
-    let state: IWritable<T> = new State<T>({ items = [||]; selected = None })
-    let init () =
-        let starterItems = {
-          selected = None
-          items =  
-            [| Request
-                   { id = Guid.NewGuid().ToString()
-                     name = "test"
-                     method = HttpMethod.Get
-                     url = "http://www.notgoogle.com"
-                     requestParameters = "todo"
-                     createdAt = DateTime.Now
-                     updatedAt = DateTime.Now }
-               Request
-                   { id = Guid.NewGuid().ToString()
-                     name = "other test"
-                     method = HttpMethod.Post
-                     url = "http://www.google.com"
-                     requestParameters = "todo"
-                     createdAt = DateTime.Now
-                     updatedAt = DateTime.Now }
-               Folder
-                   { id = Guid.NewGuid().ToString()
-                     name = "my dank requests"
-                     items = [||]
-                     isExpanded = false
-                     createdAt = DateTime.Now
-                     updatedAt = DateTime.Now } |] }
-        state.Set starterItems
-        state
-        
-    let addItems (item : Item array) =
-        let currState = state.Current
-        let newItems = Array.append currState.items item
-        state.Set { currState with items = newItems }
-        
-    let addItem () = 
-        let item = Request{
-             id = Guid.NewGuid().ToString()
-             name = "other test"
-             method = HttpMethod.Post
-             url = "http://www.google.com"
-             requestParameters = "todo"
-             createdAt = DateTime.Now
-             updatedAt = DateTime.Now }
-        addItems [|item|]
-    
-    let setSelected request =
-        state.Set { state.Current with selected = Some request }
-        
-    let expandFolder (folder : Folder) =
-        let currState = state.Current
-        let mutable itemsCopy = Array.copy currState.items
+type ItemStore =
+    { Items : IWritable<Item array>
+      Selected : IWritable<Request option> }
+
+    static member init() =
+        { Selected = new State<_> (None)
+          Items =
+            new State<_> (
+                [| Request
+                       { id = Guid.NewGuid()
+                         name = "test"
+                         method = HttpMethod.Get
+                         url = "http://www.notgoogle.com"
+                         requestParameters = "todo"
+                         previousResponse = None 
+                         createdAt = DateTime.Now
+                         updatedAt = DateTime.Now }
+                   Request
+                       { id = Guid.NewGuid()
+                         name = "other test"
+                         method = HttpMethod.Post
+                         url = "http://www.google.com"
+                         requestParameters = "todo"
+                         previousResponse = None 
+                         createdAt = DateTime.Now
+                         updatedAt = DateTime.Now }
+                   Folder
+                       { id = Guid.NewGuid()
+                         name = "my dank requests"
+                         items = [|
+                             Request {
+                               id = Guid.NewGuid()
+                               name = "test"
+                               method = HttpMethod.Get
+                               url = "http://www.notgoogle.com"
+                               previousResponse = None 
+                               requestParameters = "todo"
+                               createdAt = DateTime.Now
+                               updatedAt = DateTime.Now }
+                         |]
+                         isExpanded = false
+                         createdAt = DateTime.Now
+                         updatedAt = DateTime.Now } |]
+            ) }
+
+    member this.addItems(items : Item array) =
+        this.Items.Set (Array.append this.Items.Current items)
+
+    member this.addItem() =
+        let item =
+            Request
+                { id = Guid.NewGuid()
+                  name = "other test"
+                  method = HttpMethod.Post
+                  url = "http://www.google.com"
+                  requestParameters = "todo"
+                  previousResponse = None 
+                  createdAt = DateTime.Now
+                  updatedAt = DateTime.Now }
+
+        this.addItems [| item |]
+
+    member this.setSelected(request : Request) =
+        let tryFindRequest folder =
+            Array.tryFind
+                (function
+                | Request r -> r.id = request.id
+                | _ -> false)
+                folder.items
+
+        let foldFn acc item =
+            match acc, item with
+            | Some _, _ -> acc
+            | None, Request r when r.id = request.id -> Some r
+            | None, Folder f ->
+                match tryFindRequest f with
+                | Some (Request r) -> Some r
+                | _ -> None
+            | _ -> None
+
+        this.Selected.Set (Array.fold foldFn None this.Items.Current)
+
+    member this.expandFolder(folder : Folder) =
+        let mutable itemsCopy = Array.copy this.Items.Current
+
         let rec findItemToReplace (arr : Item array) =
-            if Array.isEmpty arr then () else
-            let mutable idx = 0
-            while idx < arr.Length do
-                match arr[idx] with
-                | Folder f when f.id = folder.id ->
-                    arr[idx] <- Folder{ f with isExpanded = not f.isExpanded }
-                    idx <- arr.Length
-                | Folder f -> findItemToReplace f.items
-                | _ -> ()
-                idx <- idx + 1
-                
+            if Array.isEmpty arr then
+                ()
+            else
+                let mutable idx = 0
+
+                while idx < arr.Length do
+                    match arr[idx] with
+                    | Folder f when f.id = folder.id ->
+                        arr[idx] <- Folder { folder with isExpanded = not folder.isExpanded; updatedAt = DateTime.Now }
+                        idx <- arr.Length
+                    | Folder f -> findItemToReplace f.items.Current
+                    | _ -> ()
+
+                    idx <- idx + 1
+
         findItemToReplace itemsCopy
-        state.Set { currState with items = itemsCopy }
-        
-    let updateRequest (newRequest : Request) =
-        let currState = state.Current
-        let mutable itemsCopy = Array.copy currState.items
+        this.Items.Set itemsCopy
+
+    member this.updateRequest(newRequest : Request) =
+        let mutable itemsCopy = Array.copy this.Items.Current
+
+        let mutable updatedItem : Item option = None
         let rec findItemToReplace (arr : Item array) =
-            if Array.isEmpty arr then () else
-            let mutable idx = 0
-            while idx < arr.Length do
-                match arr[idx] with
-                | Folder f -> findItemToReplace f.items
-                | Request r when r.id = newRequest.id ->
-                    arr[idx] <- Request { newRequest with updatedAt = DateTime.Now }
-                    idx <- arr.Length
-                | _ -> ()
-                idx <- idx + 1
+            if Array.isEmpty arr then
+                ()
+            else
+                let mutable idx = 0
+
+                while idx < arr.Length do
+                    match arr[idx] with
+                    | Folder f -> findItemToReplace f.items.Current
+                    | Request r when r.id = newRequest.id ->
+                        let updatedRequest = Request { newRequest with updatedAt = DateTime.Now }
+                        printfn "update"
+                        updatedItem <- Some updatedRequest
+                        arr[idx] <- updatedRequest
+                            
+
+                        idx <- arr.Length
+                    | _ -> ()
+
+                    idx <- idx + 1
+
         findItemToReplace itemsCopy
-        state.Set { currState with items = itemsCopy }
-        
-        
-        // member this.UpdateItem (update : RequestUpdate) =
-        //     let mutable itemsCopy = Array.copy state.items
-        //     let itemsMatch =
-        //         match state.selected with
-        //         | Some selected -> selected.id = update.newRequest.id && selected.id = update.oldRequest.id
-        //         | None -> false
-        //     let rec findItemToReplace (arr : Item array) =
-        //         if Array.isEmpty arr then () else
-        //         let mutable idx = 0
-        //         while idx < arr.Length do
-        //             match arr[idx] with
-        //             | Folder f -> findItemToReplace f.items
-        //             | Request r ->
-        //                 if r.id = update.oldRequest.id && r.id = update.newRequest.id then (
-        //                     arr[idx]<-Request update.newRequest
-        //                     idx <- arr.Length )
-        //             idx <- idx + 1
-        //             
-        //     match itemsMatch with
-        //     | true ->
-        //         findItemToReplace itemsCopy
-        //         state.items <- itemsCopy
-        //         itemsChanged.Trigger { state with items = itemsCopy }
-        //     | false -> ()
-        // member this.UpdateSelected (selectionUpdate : Request option) =
-        //     let update = { state with selected = selectionUpdate }
-        //     state.selected <- selectionUpdate
-        //     selectedChanged.Trigger update
-        // member this.AddItem (item : Item) =
-        //     let newItems = Array.append state.items [| item |]
-        //     let update = { state with items = newItems }
-        //     state.items <- newItems
-        //     newItemsitemsChanged.Trigger update
+        this.Items.Set itemsCopy
+        match updatedItem with
+        | Some (Request r) -> this.Selected.Set (Some r)
+        | _ -> ()
+
+
+[<RequireQualifiedAccess>]
+module StateStore =
+    let itemStore = ItemStore.init ()
